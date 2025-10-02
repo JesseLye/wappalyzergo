@@ -2,9 +2,10 @@ package wappalyzer
 
 import (
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
+
+	regexp "github.com/wasilibs/go-re2"
 )
 
 // ParsedPattern encapsulates a regular expression with
