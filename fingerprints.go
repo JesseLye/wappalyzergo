@@ -51,13 +51,13 @@ type CompiledFingerprint struct {
 	// icon contains a Icon associated with the fingerprint
 	icon string
 	// cookies contains fingerprints for target cookies
-	cookies map[string]*ParsedPattern
+	cookies []ParsedFingerprintPair
 	// js contains fingerprints for the js file
 	js map[string]*ParsedPattern
 	// dom contains fingerprints for the target dom
 	dom map[string]map[string]*ParsedPattern
 	// headers contains fingerprints for target headers
-	headers map[string]*ParsedPattern
+	headers []ParsedFingerprintPair
 	// html contains fingerprints for the target HTML
 	html []*ParsedPattern
 	// script contains fingerprints for scripts
@@ -78,9 +78,14 @@ func (f *CompiledFingerprint) GetDOMRules() map[string]map[string]*ParsedPattern
 	return f.dom
 }
 
-type Header struct {
+type FingerprintPair struct {
 	Key   string
 	Value string
+}
+
+type ParsedFingerprintPair struct {
+	Key     string
+	Pattern *ParsedPattern
 }
 
 // AppInfo contains basic information about an App.
@@ -171,8 +176,8 @@ func getFingerprintOrder(a string, b string) bool {
 	return a < b
 }
 
-func sortHeaders(headers []Header) []Header {
-	newHeaders := make([]Header, len(headers))
+func sortHeaders(headers []FingerprintPair) []FingerprintPair {
+	newHeaders := make([]FingerprintPair, len(headers))
 	copy(newHeaders, headers)
 
 	sort.Slice(newHeaders, func(i int, j int) bool {
@@ -182,24 +187,32 @@ func sortHeaders(headers []Header) []Header {
 	return newHeaders
 }
 
-func mapToHeaders(inputMap map[string]string) []Header {
-	headers := make([]Header, 0, len(inputMap))
+func mapToHeaders(inputMap map[string]string) []FingerprintPair {
+	headers := make([]FingerprintPair, 0, len(inputMap))
 	for key, value := range inputMap {
-		cookieFingerprint := Header{
+		newHeader := FingerprintPair{
 			Key:   key,
 			Value: value,
 		}
-		headers = append(headers, cookieFingerprint)
+		headers = append(headers, newHeader)
 	}
 	return headers
 }
 
-func headersToMap(headerArray []Header) map[string]string {
-	newMap := make(map[string]string)
-	for _, header := range headerArray {
-		newMap[header.Key] = header.Value
+func parseHeaders(headers []FingerprintPair) ([]ParsedFingerprintPair, error) {
+	parsedHeaders := make([]ParsedFingerprintPair, 0, len(headers))
+	for _, header := range headers {
+		fingerprint, err := ParsePattern(header.Value)
+		if err != nil {
+			return nil, err
+		}
+		newParsedHeader := ParsedFingerprintPair{
+			Key:     header.Key,
+			Pattern: fingerprint,
+		}
+		parsedHeaders = append(parsedHeaders, newParsedHeader)
 	}
-	return newMap
+	return parsedHeaders, nil
 }
 
 // loadPatterns loads the fingerprint patterns and compiles regexes
@@ -211,9 +224,9 @@ func compileFingerprint(fingerprint *Fingerprint) *CompiledFingerprint {
 		website:     fingerprint.Website,
 		icon:        fingerprint.Icon,
 		dom:         make(map[string]map[string]*ParsedPattern),
-		cookies:     make(map[string]*ParsedPattern),
+		cookies:     make([]ParsedFingerprintPair, 0),
 		js:          make(map[string]*ParsedPattern),
-		headers:     make(map[string]*ParsedPattern),
+		headers:     make([]ParsedFingerprintPair, 0),
 		html:        make([]*ParsedPattern, 0, len(fingerprint.HTML)),
 		script:      make([]*ParsedPattern, 0, len(fingerprint.Script)),
 		scriptSrc:   make([]*ParsedPattern, 0, len(fingerprint.ScriptSrc)),
@@ -250,15 +263,11 @@ func compileFingerprint(fingerprint *Fingerprint) *CompiledFingerprint {
 	}
 
 	cookieHeaders := mapToHeaders(fingerprint.Cookies)
-	sortedCookies := sortHeaders(cookieHeaders)
-	cookieMap := headersToMap(sortedCookies)
-
-	for header, pattern := range cookieMap {
-		fingerprint, err := ParsePattern(pattern)
-		if err != nil {
-			continue
-		}
-		compiled.cookies[header] = fingerprint
+	sortedCookieHeaders := sortHeaders(cookieHeaders)
+	parsedCookieHeaders, err := parseHeaders(sortedCookieHeaders)
+	// Don't worry about the error, just carry along
+	if err == nil {
+		compiled.cookies = parsedCookieHeaders
 	}
 
 	for k, pattern := range fingerprint.JS {
@@ -271,14 +280,9 @@ func compileFingerprint(fingerprint *Fingerprint) *CompiledFingerprint {
 
 	headers := mapToHeaders(fingerprint.Headers)
 	sortedHeaders := sortHeaders(headers)
-	headerMap := headersToMap(sortedHeaders)
-
-	for header, pattern := range headerMap {
-		fingerprint, err := ParsePattern(pattern)
-		if err != nil {
-			continue
-		}
-		compiled.headers[header] = fingerprint
+	parsedHeaders, err := parseHeaders(sortedHeaders)
+	if err == nil {
+		compiled.headers = parsedHeaders
 	}
 
 	for _, pattern := range fingerprint.HTML {
@@ -404,32 +408,32 @@ func (f *CompiledFingerprints) matchKeyValueString(key, value string, part part)
 
 		switch part {
 		case cookiesPart:
-			for data, pattern := range fingerprint.cookies {
-				if data != key {
+			for _, header := range fingerprint.cookies {
+				if header.Key != key {
 					continue
 				}
 
-				if valid, versionString := pattern.Evaluate(value); valid {
+				if valid, versionString := header.Pattern.Evaluate(value); valid {
 					matched = true
 					if version == "" && versionString != "" {
 						version = versionString
 					}
-					confidence = pattern.Confidence
+					confidence = header.Pattern.Confidence
 					break
 				}
 			}
 		case headersPart:
-			for data, pattern := range fingerprint.headers {
-				if data != key {
+			for _, header := range fingerprint.headers {
+				if header.Key != key {
 					continue
 				}
 
-				if valid, versionString := pattern.Evaluate(value); valid {
+				if valid, versionString := header.Pattern.Evaluate(value); valid {
 					matched = true
 					if version == "" && versionString != "" {
 						version = versionString
 					}
-					confidence = pattern.Confidence
+					confidence = header.Pattern.Confidence
 					break
 				}
 			}
@@ -486,36 +490,40 @@ func (f *CompiledFingerprints) matchMapString(keyValue map[string]string, part p
 
 		switch part {
 		case cookiesPart:
-			for data, pattern := range fingerprint.cookies {
-				value, ok := keyValue[data]
+			for _, header := range fingerprint.cookies {
+				value, ok := keyValue[header.Key]
 				if !ok {
 					continue
 				}
-				if pattern == nil {
+				if header.Pattern == nil {
 					matched = true
 				}
-				if valid, versionString := pattern.Evaluate(value); valid {
+
+				if valid, versionString := header.Pattern.Evaluate(value); valid {
 					matched = true
 					if version == "" && versionString != "" {
 						version = versionString
 					}
-					confidence = pattern.Confidence
+					confidence = header.Pattern.Confidence
 					break
 				}
 			}
 		case headersPart:
-			for data, pattern := range fingerprint.headers {
-				value, ok := keyValue[data]
+			for _, header := range fingerprint.headers {
+				value, ok := keyValue[header.Key]
 				if !ok {
 					continue
 				}
+				if header.Pattern == nil {
+					matched = true
+				}
 
-				if valid, versionString := pattern.Evaluate(value); valid {
+				if valid, versionString := header.Pattern.Evaluate(value); valid {
 					matched = true
 					if version == "" && versionString != "" {
 						version = versionString
 					}
-					confidence = pattern.Confidence
+					confidence = header.Pattern.Confidence
 					break
 				}
 			}
