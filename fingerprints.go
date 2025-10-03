@@ -177,42 +177,42 @@ func getFingerprintOrder(a string, b string) bool {
 }
 
 func sortFingerprintPairs(headers []FingerprintPair) []FingerprintPair {
-	newHeaders := make([]FingerprintPair, len(headers))
-	copy(newHeaders, headers)
+	newFingerprintPairs := make([]FingerprintPair, len(headers))
+	copy(newFingerprintPairs, headers)
 
-	sort.Slice(newHeaders, func(i int, j int) bool {
-		return getFingerprintOrder(newHeaders[i].Value, newHeaders[j].Value)
+	sort.Slice(newFingerprintPairs, func(i int, j int) bool {
+		return getFingerprintOrder(newFingerprintPairs[i].Value, newFingerprintPairs[j].Value)
 	})
 
-	return newHeaders
+	return newFingerprintPairs
 }
 
 func mapToFingerprintPairs(inputMap map[string]string) []FingerprintPair {
-	headers := make([]FingerprintPair, 0, len(inputMap))
+	fingerprintPairs := make([]FingerprintPair, 0, len(inputMap))
 	for key, value := range inputMap {
 		newHeader := FingerprintPair{
 			Key:   key,
 			Value: value,
 		}
-		headers = append(headers, newHeader)
+		fingerprintPairs = append(fingerprintPairs, newHeader)
 	}
-	return headers
+	return fingerprintPairs
 }
 
-func parseHeaders(headers []FingerprintPair) ([]ParsedFingerprintPair, error) {
-	parsedHeaders := make([]ParsedFingerprintPair, 0, len(headers))
+func parseFingerprintPairs(headers []FingerprintPair) ([]ParsedFingerprintPair, error) {
+	parsedFingerprintPairs := make([]ParsedFingerprintPair, 0, len(headers))
 	for _, header := range headers {
 		fingerprint, err := ParsePattern(header.Value)
 		if err != nil {
 			return nil, err
 		}
-		newParsedHeader := ParsedFingerprintPair{
+		newParsedFingerprintPair := ParsedFingerprintPair{
 			Key:     header.Key,
 			Pattern: fingerprint,
 		}
-		parsedHeaders = append(parsedHeaders, newParsedHeader)
+		parsedFingerprintPairs = append(parsedFingerprintPairs, newParsedFingerprintPair)
 	}
-	return parsedHeaders, nil
+	return parsedFingerprintPairs, nil
 }
 
 // loadPatterns loads the fingerprint patterns and compiles regexes
@@ -264,7 +264,7 @@ func compileFingerprint(fingerprint *Fingerprint) *CompiledFingerprint {
 
 	cookieHeaders := mapToFingerprintPairs(fingerprint.Cookies)
 	sortedCookieHeaders := sortFingerprintPairs(cookieHeaders)
-	parsedCookieHeaders, err := parseHeaders(sortedCookieHeaders)
+	parsedCookieHeaders, err := parseFingerprintPairs(sortedCookieHeaders)
 	// Don't worry about the error, just carry along
 	if err == nil {
 		compiled.cookies = parsedCookieHeaders
@@ -280,7 +280,7 @@ func compileFingerprint(fingerprint *Fingerprint) *CompiledFingerprint {
 
 	headers := mapToFingerprintPairs(fingerprint.Headers)
 	sortedHeaders := sortFingerprintPairs(headers)
-	parsedHeaders, err := parseHeaders(sortedHeaders)
+	parsedHeaders, err := parseFingerprintPairs(sortedHeaders)
 	if err == nil {
 		compiled.headers = parsedHeaders
 	}
