@@ -2,6 +2,9 @@ package wappalyzer
 
 import (
 	"fmt"
+	"sort"
+	"strconv"
+	"strings"
 )
 
 // Fingerprints contains a map of fingerprints for tech detection
@@ -75,6 +78,11 @@ func (f *CompiledFingerprint) GetDOMRules() map[string]map[string]*ParsedPattern
 	return f.dom
 }
 
+type Header struct {
+	Key   string
+	Value string
+}
+
 // AppInfo contains basic information about an App.
 type AppInfo struct {
 	Description string
@@ -101,6 +109,98 @@ const (
 	scriptPart
 	metaPart
 )
+
+// identify substrings for sorting (hack)
+const (
+	versionSubstring    = "version:"
+	confidenceSubstring = "confidence:"
+)
+
+func extractConfidence(s string) int {
+	if !strings.Contains(s, confidenceSubstring) {
+		return -1
+	}
+	parts := strings.Split(s, confidenceSubstring)
+	if len(parts) < 2 {
+		return -1
+	}
+	val, err := strconv.Atoi(strings.TrimSpace(parts[1]))
+	if err != nil {
+		return -1
+	}
+	return val
+}
+
+func getFingerprintOrder(a string, b string) bool {
+	aHasVersion := strings.Contains(a, versionSubstring)
+	bHasVersion := strings.Contains(b, versionSubstring)
+
+	aConf := extractConfidence(a)
+	bConf := extractConfidence(b)
+
+	// 1. Version without confidence comes first
+	if aHasVersion && aConf == -1 && (!bHasVersion || bConf != -1) {
+		return true
+	}
+	if bHasVersion && bConf == -1 && (!aHasVersion || aConf != -1) {
+		return false
+	}
+
+	// 2. Version with confidence, ordered by descending confidence
+	if aHasVersion && bHasVersion && aConf != -1 && bConf != -1 {
+		return aConf > bConf
+	}
+
+	// 3. Version with confidence vs version without confidence
+	if aHasVersion && aConf != -1 && bHasVersion && bConf == -1 {
+		return false
+	}
+	if bHasVersion && bConf != -1 && aHasVersion && aConf == -1 {
+		return true
+	}
+
+	// 4. Detection only goes last
+	if !aHasVersion && bHasVersion {
+		return false
+	}
+	if aHasVersion && !bHasVersion {
+		return true
+	}
+
+	// 5. Tie-breaker: alphabetical
+	return a < b
+}
+
+func sortHeaders(headers []Header) []Header {
+	newHeaders := make([]Header, len(headers))
+	copy(newHeaders, headers)
+
+	sort.Slice(newHeaders, func(i int, j int) bool {
+		return getFingerprintOrder(newHeaders[i].Value, newHeaders[j].Value)
+	})
+
+	return newHeaders
+}
+
+func mapToHeaders(inputMap map[string]string) []Header {
+	headers := make([]Header, 0, len(inputMap))
+	for key, value := range inputMap {
+		cookieFingerprint := Header{
+			Key:   key,
+			Value: value,
+		}
+		headers = append(headers, cookieFingerprint)
+	}
+	return headers
+}
+
+func headersToMap(headerArray []Header) map[string]string {
+	newMap := make(map[string]string)
+	for _, header := range headerArray {
+		newMap[header.Key] = header.Value
+	}
+	return newMap
+}
 
 // loadPatterns loads the fingerprint patterns and compiles regexes
 func compileFingerprint(fingerprint *Fingerprint) *CompiledFingerprint {
@@ -149,7 +249,11 @@ func compileFingerprint(fingerprint *Fingerprint) *CompiledFingerprint {
 		}
 	}
 
-	for header, pattern := range fingerprint.Cookies {
+	cookieHeaders := mapToHeaders(fingerprint.Cookies)
+	sortedCookies := sortHeaders(cookieHeaders)
+	cookieMap := headersToMap(sortedCookies)
+
+	for header, pattern := range cookieMap {
 		fingerprint, err := ParsePattern(pattern)
 		if err != nil {
 			continue
@@ -165,7 +269,11 @@ func compileFingerprint(fingerprint *Fingerprint) *CompiledFingerprint {
 		compiled.js[k] = fingerprint
 	}
 
-	for header, pattern := range fingerprint.Headers {
+	headers := mapToHeaders(fingerprint.Headers)
+	sortedHeaders := sortHeaders(headers)
+	headerMap := headersToMap(sortedHeaders)
+
+	for header, pattern := range headerMap {
 		fingerprint, err := ParsePattern(pattern)
 		if err != nil {
 			continue
@@ -200,7 +308,14 @@ func compileFingerprint(fingerprint *Fingerprint) *CompiledFingerprint {
 	for meta, patterns := range fingerprint.Meta {
 		var compiledList []*ParsedPattern
 
-		for _, pattern := range patterns {
+		sortedPatterns := make([]string, len(patterns))
+		copy(sortedPatterns, patterns)
+
+		sort.Slice(sortedPatterns, func(i int, j int) bool {
+			return getFingerprintOrder(sortedPatterns[i], sortedPatterns[j])
+		})
+
+		for _, pattern := range sortedPatterns {
 			fingerprint, err := ParsePattern(pattern)
 			if err != nil {
 				continue
