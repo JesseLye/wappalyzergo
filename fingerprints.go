@@ -176,7 +176,7 @@ func getFingerprintOrder(a string, b string) bool {
 	return a < b
 }
 
-func sortHeaders(headers []FingerprintPair) []FingerprintPair {
+func sortFingerprintPairs(headers []FingerprintPair) []FingerprintPair {
 	newHeaders := make([]FingerprintPair, len(headers))
 	copy(newHeaders, headers)
 
@@ -187,7 +187,7 @@ func sortHeaders(headers []FingerprintPair) []FingerprintPair {
 	return newHeaders
 }
 
-func mapToHeaders(inputMap map[string]string) []FingerprintPair {
+func mapToFingerprintPairs(inputMap map[string]string) []FingerprintPair {
 	headers := make([]FingerprintPair, 0, len(inputMap))
 	for key, value := range inputMap {
 		newHeader := FingerprintPair{
@@ -262,8 +262,8 @@ func compileFingerprint(fingerprint *Fingerprint) *CompiledFingerprint {
 		}
 	}
 
-	cookieHeaders := mapToHeaders(fingerprint.Cookies)
-	sortedCookieHeaders := sortHeaders(cookieHeaders)
+	cookieHeaders := mapToFingerprintPairs(fingerprint.Cookies)
+	sortedCookieHeaders := sortFingerprintPairs(cookieHeaders)
 	parsedCookieHeaders, err := parseHeaders(sortedCookieHeaders)
 	// Don't worry about the error, just carry along
 	if err == nil {
@@ -278,8 +278,8 @@ func compileFingerprint(fingerprint *Fingerprint) *CompiledFingerprint {
 		compiled.js[k] = fingerprint
 	}
 
-	headers := mapToHeaders(fingerprint.Headers)
-	sortedHeaders := sortHeaders(headers)
+	headers := mapToFingerprintPairs(fingerprint.Headers)
+	sortedHeaders := sortFingerprintPairs(headers)
 	parsedHeaders, err := parseHeaders(sortedHeaders)
 	if err == nil {
 		compiled.headers = parsedHeaders
