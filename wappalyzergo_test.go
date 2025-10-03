@@ -35,10 +35,12 @@ func TestHeadersDetect(t *testing.T) {
 	require.Nil(t, err, "could not create wappalyzer")
 
 	matches := wappalyzer.Fingerprint(map[string][]string{
-		"Server": {"now"},
+		"X-AspNet-Version": {"4.0.30319"},
+		"X-Powered-By":     {"ASP.NET"},
 	}, []byte(""))
 
-	require.Contains(t, matches, "Vercel", "Could not get correct match")
+	// Needs to consistently detect the version
+	require.Contains(t, matches, "Microsoft ASP.NET:4.0.30319", "Could not get correct match")
 }
 
 func TestBodyDetect(t *testing.T) {
